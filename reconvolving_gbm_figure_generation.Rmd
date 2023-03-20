@@ -1,0 +1,279 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+Load RData
+```{r}
+
+#Download .RData https://drive.google.com/file/d/1LmQX3vD6voSvO3dTbG9b2kY-kW3U-dhP/view?usp=share_link and load into environment
+
+
+```
+
+Helper functions for Deconvolution 
+```{r}
+run_rctd_helper<-function(STexp, reference,label_col,preref=FALSE,name=NULL,exp_name,return.prop=FALSE,gene_cutoff=NULL,...){
+  library("spacexr")
+  library("ggplot2")
+  library("Seurat")
+  library("egg")
+  require(dplyr)
+  require(grid)
+  require(gridExtra)
+  
+  
+  if (preref==FALSE){
+  class_check<-class(reference)
+  if (class_check=="Seurat"){
+    if(any(table(reference@meta.data[[label_col]])<25)){
+      single_name<-names(table(reference@meta.data[[label_col]])[table(reference@meta.data[[label_col]])<25])
+      single_cols<-which(reference@meta.data[[label_col]]%in%single_name)
+      reference<-reference[,-c(single_cols)]
+      print(paste("Removed group",single_name,"from reference: less than 25 cells in reference"))
+    }
+    
+    sc_count<-reference@assays[[reference@active.assay]]@counts
+    sc_meta<-data.frame(cellType=matrix(reference@meta.data[[label_col]]))
+    sc_meta$sample<-rep("1",nrow(sc_meta))
+    rownames(sc_meta)<-colnames(sc_count)
+  }
+  else if(class_check=="SingleCellExperiment"){
+    if(any(table(reference@colData@listData[[label_col]])<25)){
+      single_name<-names(table(reference@colData@listData[[label_col]])[table(reference@colData@listData[[label_col]])<25])
+      single_cols<-which(reference@colData@listData[[label_col]]%in%single_name)
+      reference<-reference[,-c(single_cols)]
+      print(paste("Removed group",single_name,"from reference: less than 25 cells in reference"))
+    }
+    
+    sc_count<-reference@assays@data@listData[["counts"]]
+    sc_meta<-data.frame(cellType=matrix(reference@colData@listData[[label_col]]))
+    sc_meta$sample<-rep("1",nrow(sc_meta))
+    rownames(sc_meta)<-colnames(sc_count)
+  }
+  }
+  
+  if (preref==TRUE){
+    sc_count<-reference
+    sc_meta<-label_col
+  }
+  spatial_count<-STexp@assays[[STexp@active.assay]]@counts
+  
+  spot_names<-STexp@assays[[STexp@active.assay]]@counts@Dimnames[[2]]
+  row_spatial<-as.numeric(STexp@images[["slice1"]]@coordinates[["row"]])
+  col_spatial<-as.numeric(STexp@images[["slice1"]]@coordinates[["col"]])
+  row_image<-as.numeric(STexp@images[["slice1"]]@coordinates[["imagerow"]])
+  col_image<-as.numeric(STexp@images[["slice1"]]@coordinates[["imagecol"]])
+  
+  coords<-data.frame(cbind(col_image,row_image))
+  colnames(coords)<-c("x","y")
+  rownames(coords)<-spot_names
+  
+  ref_cell_type<-as.factor(sc_meta$cellType)
+  names(ref_cell_type)<-colnames(reference)
+  ref_nUMI<-colSums(sc_count)
+  
+  rctd_reference<-Reference(sc_count,ref_cell_type,ref_nUMI)
+  
+  nUMI<-colSums(spatial_count)
+  
+  puck<-SpatialRNA(coords,spatial_count,nUMI,require_int = FALSE)
+  
+  if(is.null(gene_cutoff)){
+    gene_cutoff<-0.75
+  }
+  
+  myRCTD<-create.RCTD(puck,rctd_reference,max_cores = 36,fc_cutoff_reg = gene_cutoff)
+  myRCTD<-run.RCTD(myRCTD, doublet_mode = "full")
+  RCTDsavename<-paste0(name,"_",exp_name,"_rctd.rds",...)
+  saveRDS(myRCTD,file=RCTDsavename)
+  
+  results_rctd <- myRCTD@results
+  #results_rctd<<-results_rctd
+  
+  if (return.prop==TRUE){
+    prop.objs<-as.data.frame(results_rctd[["weights"]])
+    return(prop.objs)
+  }
+}
+
+mapify<-function(target,reps){
+  return(rep(list(target),reps))
+}
+
+```
+
+
+Figure 2D
+```{r}
+require(SPATA2)
+require(scales)
+require(ggplot2)
+
+plots_needed<-Map(function(spata,size){
+  grid_z<-Map(function(ct){
+    z<-plotSurface(spata,color_by = ct,smooth = T,smooth_span = 0.4,pt_clrsp = "viridis",pt_alpha = 0.85,pt_size = size,normalize = T)
+  z<-z+ylab(ct)+scale_color_viridis_c(oob=squish,limits=c(0,max(z[["data"]][[ct]],na.rm = T)),breaks=c(0,max(z[["data"]][[ct]],na.rm = T)))+theme(legend.position="none",plot.margin=margin(10,0,0,0),axis.title.y = element_text(size=16,face="bold",angle=90,margin=margin(0,10,0,20)))
+  return(z)
+  },ct=c("Ast1","OPC","Ast3","gl_Mes2","Endothelial","gl_Pro2"))
+  return(grid_z)
+  },spata_objs_rctd[1],size=c(5.6))
+
+x.plots_needed<-Map(function(obj,namex){
+  f<-plot_grid(plotlist = obj,ncol=2,nrow=3)
+  ggsave(filename = paste0(namex,"_final_vectorized_spata_plots.pdf"),plot=f,bg="white")
+},obj=plots_needed,namex=names(plots_needed))
+```
+
+
+Figure 2E
+```{r}
+require(Seurat)
+require(dplyr)
+require(spacexr)
+require(gtools)
+require(MERINGUE)
+require(poolr)
+require(dendextend)
+require(ComplexHeatmap)
+
+reference<-snRNA_all_nuclei
+label_col<-"Cluster"
+
+    if(any(table(reference@meta.data[[label_col]])==1)){
+      single_name<-names(table(reference@meta.data[[label_col]])[table(reference@meta.data[[label_col]])==1])
+      single_cols<-which(reference@meta.data[[label_col]]%in%single_name)
+      reference<-reference[,-c(single_cols)]
+      print(paste("Removed group",single_name,"from reference: only 1 cell in reference"))
+    }
+    
+    sc_count<-reference@assays[[reference@active.assay]]@counts
+    sc_meta<-data.frame(cellType=matrix(reference@meta.data[[label_col]]))
+    sc_meta$sample<-rep("1",nrow(sc_meta))
+    rownames(sc_meta)<-colnames(sc_count)
+  
+
+deconvolved_props<-Map(run_rctd_helper,STexp=ST_objects[1:2],reference=mapify(sc_count,length(ST_objects[1:2])),label_col=mapify(sc_meta,length(ST_objects[1:2])),preref=mapify(TRUE,length(ST_objects[1:2])),exp_name=mapify("RCTD_Deconvolution"),name=names(ST_objects[1:2]),return.prop=mapify(TRUE,length(ST_objects[1:2])),gene_cutoff=mapify(1.25,length(ST_objects[1:2])))
+
+
+rctd_spatial_matrix_correlations<-Map(function(obj,network){
+spot_keep<-intersect(rownames(obj),rownames(network))
+obj1<-obj[spot_keep,]
+network<-network[spot_keep,spot_keep]
+return(spatialCrossCorMatrix(t(obj1),network))
+},deconvolved_props,adjacency_matrix[1:2])
+
+
+x.sc_correlation_plotting_table<-Map(function(obj,names){
+  rownames(obj)<-paste0(names,"_",rownames(obj))
+  return(obj)
+},rctd_spatial_matrix_correlations,names(rctd_spatial_matrix_correlations))
+x.sc_correlation_plotting_table<-Reduce(rbind,x.sc_correlation_plotting_table)
+x.sc_correlation_plotting_table<-t(x.sc_correlation_plotting_table)
+x.sc_correlation_plotting_table<-as_tibble(cbind(rownames(x.sc_correlation_plotting_table),x.sc_correlation_plotting_table))
+colnames(x.sc_correlation_plotting_table)[[1]]<-"cellType"
+x.sc_correlation_plotting_table %>% pivot_longer(!cellType,names_to = c("Exp","cellType2"),names_pattern = "(ST...)_(.+)",values_to = "scc") %>% mutate(combo_names=paste0(cellType,".",cellType2))->xp.sc_correlation_plotting_table
+xp.sc_correlation_plotting_table$scc<-as.numeric(xp.sc_correlation_plotting_table$scc)
+
+test_combos<-combinations(n=length(colnames(deconvolved_props[[1]])),r=2,v=colnames(deconvolved_props[[1]]),repeats.allowed = TRUE)
+test_combos<-as.data.frame(matrix(data=test_combos,ncol=2))
+
+cellTypeA<-test_combos[,1]
+cellTypeB<-test_combos[,2]
+
+rctd_spatial_matrix_test<-Map(function(obj,network2){
+    spot_keep<-intersect(rownames(obj),rownames(network2))
+    obj1<-obj[spot_keep,]
+    network2<-network2[spot_keep,spot_keep]
+    test100<-Map(function(test_1,test_2){
+      celltypeA<-obj1[,test_1]
+      names(celltypeA)<-rownames(obj1)
+      celltypeB<-obj1[,test_2]
+      names(celltypeB)<-rownames(obj1)
+      spatialCrossCorTest(x=celltypeA,y=celltypeB,w=network2,n = 100)
+    },test_combos[,1],test_combos[,2])
+    return(test100)
+  },deconvolved_props,adjacency_matrix)
+
+
+rctd_spatial_matrix_test2<-lapply(rctd_spatial_matrix_test,function(obj){
+  names(obj)<-paste0(test_combos[,1],".",test_combos[,2])
+  return(obj)
+  })
+
+
+unlist_rctd_spatial_matrix_test2<-unlist(rctd_spatial_matrix_test2,recursive = F)
+
+spatial_matrix_test_plotting<-Reduce(cbind,rctd_spatial_matrix_test2)
+  colnames(spatial_matrix_test_plotting)<-names(rctd_spatial_matrix_test2)
+  spatial_matrix_test_plotting<-as_tibble(spatial_matrix_test_plotting)
+  
+  combo_names<-names(rctd_spatial_matrix_test2[[1]])
+  
+  
+  spatial_matrix_test_plotting<-cbind(combo_names,spatial_matrix_test_plotting)
+  
+  spatial_matrix_test_plotting %>% pivot_longer(!combo_names,names_to =c("Exp"), values_to="p_value")->plotting_source_table
+  plotting_source_table$p_value<-as.numeric(plotting_source_table$p_value)
+
+
+ plotting_source_table %>%  group_by(Exp) %>% mutate(adj_p_val=p.adjust(p_value,method="fdr")) %>% ungroup() %>% group_by(combo_names) %>%   summarise(fishers=fisher(adj_p_val,side=1)$p)  %>% mutate(significance=ifelse(fishers<0.05,1,0))-> to_plot  
+
+
+
+xp.sc_correlation_plotting_table %>% group_by(combo_names) %>% summarise(mean_scc=mean(scc)) %>% mutate(polarity=ifelse(mean_scc>=0,1,-1))->polarity
+
+left_join(to_plot,polarity) %>%  separate(combo_names,c("cellTypeA","cellTypeB"),sep="[.]") ->complete_p_value_table
+
+
+
+
+
+bottom_triangle<-complete_p_value_table
+bottom_triangle$cellTypeA<-complete_p_value_table$cellTypeB
+bottom_triangle$cellTypeB<-complete_p_value_table$cellTypeA
+
+x.complete_p_value_table<-rbind(complete_p_value_table,bottom_triangle)
+
+x.complete_p_value_table %>% filter(!duplicated(cbind(cellTypeA,cellTypeB))) %>%  pivot_wider(id_cols=cellTypeA,names_from = cellTypeB,values_from = mean_scc) ->heatmap_scc_table
+
+x.heatmap_scc_table<-heatmap_scc_table[,-1]
+rownames(x.heatmap_scc_table)<-heatmap_scc_table$cellTypeA
+
+
+x.complete_p_value_table %>% filter(!duplicated(cbind(cellTypeA,cellTypeB))) %>%  pivot_wider(id_cols=cellTypeA,names_from = cellTypeB,values_from = significance) ->heatmap_significance_table
+
+x.heatmap_significance_table<-heatmap_significance_table[,-1]
+rownames(x.heatmap_significance_table)<-heatmap_significance_table$cellTypeA
+
+
+
+  dist_clust<-dist(x.heatmap_scc_table)
+  clust<-hclust(dist_clust,method = "ward.D")
+  dendro<-as.dendrogram(clust)
+  y.clust<-reorder(x = dendro,wts=c(1,1,1,50,1,1,1,1,1,1,1,1,1,1,1,1,1,1),agglo.fun="mean")
+  y.clust<-color_branches(y.clust,k=3,col=c("blue","red","black"))
+
+
+ h<-draw(Heatmap(x.heatmap_scc_table,row_labels = rownames(x.heatmap_scc_table),column_labels = rownames(x.heatmap_scc_table),heatmap_legend_param = list(title="Spatial Cross\nCorrelation",legend_direction="horizontal",title_position="topcenter",title_gp=gpar(fontsize=16,font=1),labels_gp=gpar(fontsize=14)),cluster_rows = y.clust,cluster_columns = y.clust, split = 3,column_split = 3,row_gap = unit(2,"mm"),column_gap = unit(2,"mm"),row_title = c("Cluster\n1","Cluster\n2","Cluster\n3"),show_column_dend = F,row_names_gp = gpar(fontsize= 18),column_names_gp = gpar(fontsize= 18),column_title_gp = gpar(fontsize=24),cell_fun = function(j, i, x, y, w, h, fill) {
+    if(x.heatmap_significance_table[i, j] ==0) {
+        grid.points(x, y,pch=7,gp = gpar(fontsize=36))
+    }
+},row_title_gp = gpar(fontsize=20,font=1,col=c("blue","red","black")),column_title = NULL,height=nrow(x.heatmap_scc_table)*unit(1,"cm"),width=ncol(x.heatmap_scc_table)*unit(1,"cm"),na_col = "#565656"
+),heatmap_legend_side="bottom",padding=unit(c(5,5,5,5),"mm"))
+
+
+```
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
