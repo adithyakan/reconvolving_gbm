@@ -11,6 +11,6 @@ Load this workspace into your environment and run the chunks in the .rmd file to
 
 
 
-Alternatively, the source data can be downloaded in raw form directly from GEO (Accession: GSE200894). 
+Alternatively, the source data can be downloaded in raw form directly from GEO (Accession: GSE200984). 
 
 
