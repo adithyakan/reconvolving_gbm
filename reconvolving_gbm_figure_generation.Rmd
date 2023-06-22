@@ -108,7 +108,7 @@ mapify<-function(target,reps){
 ```
 
 
-Figure 2D
+Figure 5A
 ```{r}
 require(SPATA2)
 require(scales)
@@ -130,7 +130,7 @@ x.plots_needed<-Map(function(obj,namex){
 ```
 
 
-Figure 2E
+Figure 5B
 ```{r}
 require(Seurat)
 require(dplyr)
