@@ -9,7 +9,8 @@ https://drive.google.com/file/d/1LmQX3vD6voSvO3dTbG9b2kY-kW3U-dhP/view?usp=share
 
 Load this workspace into your environment and run the chunks in the .rmd file to generate the figures.
 
-
+Processed data objects here: https://drive.google.com/drive/folders/1wyV76FgQ5whQTqkm08YtQLIpul7OfWY0?usp=sharing 
+Please read the enclosed README file for the description of the data
 
 Alternatively, the source data can be downloaded in raw form directly from GEO (Accession: [GSE200984](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE200984)). 
 
