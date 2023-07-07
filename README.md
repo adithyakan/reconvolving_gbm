@@ -1,5 +1,5 @@
 # reconvolving_gbm
-Reconvolving the Transcriptional Landscape of GBM
+Reconvolving the Transcriptional Landscape of GBM (DOI:10.1038/s41467-023-38186-1)
 
 Processed data objects here: https://drive.google.com/drive/folders/1wyV76FgQ5whQTqkm08YtQLIpul7OfWY0?usp=sharing 
 
